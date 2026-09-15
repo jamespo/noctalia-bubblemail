@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "poll_interval": {
+      "label": "Poll interval",
+      "description": "Seconds between checks of the bubblemail daemon."
+    },
+    "display_mode": {
+      "label": "Bar display",
+      "description": "What the bar widget shows.",
+      "icon_and_count": "Icon and count",
+      "count": "Count only",
+      "icon": "Icon only"
+    },
+    "hide_when_empty": {
+      "label": "Hide when empty",
+      "description": "Remove the bar widget when there is no unread mail and no account errors."
+    },
+    "max_mails": {
+      "label": "Mails in panel",
+      "description": "Maximum number of pending mails listed in the panel."
+    },
+    "notify_errors": {
+      "label": "Notify on account errors",
+      "description": "Send a notification when an account enters an error state."
+    }
+  }
+}

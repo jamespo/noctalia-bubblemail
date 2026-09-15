@@ -1,0 +1,93 @@
+# Noctalia v5 plugin manifest for Bubblemail.
+#
+# plugin_api = 16 targets the last released level of v5.0.0, so the plugin also
+# loads on stable 5.0.x rather than only on the 5.1 series. Nothing here relies
+# on 17+ features (no onExit, no capture_keys, no actions grammar).
+#
+# Architecture: one service entry owns all D-Bus traffic and publishes plain
+# data to "bm.*" state keys; the widget, tile and panel are thin readers. See
+# service.luau for the state contract.
+
+id = "jamespo/bubblemail"
+name = "Bubblemail"
+version = "1.0.0"
+plugin_api = 16
+author = "jamespo"
+license = "MIT"
+deprecated = false
+icon = "mail"
+description = "Unread mail count and per-account status from a running bubblemaild."
+tags = ["bar", "panel", "service", "mail"]
+dependencies = ["bubblemail", "python-dbus"]
+
+# ── Settings ────────────────────────────────────────────────────────────────
+# Every key here must be read via noctalia.getConfig() somewhere, and every
+# getConfig() key must be declared here, or `noctalia plugins lint` complains.
+
+[[setting]]
+key = "poll_interval"
+type = "int"
+label_key = "settings.poll_interval.label"
+description_key = "settings.poll_interval.description"
+default = 30
+min = 5
+max = 600
+
+[[setting]]
+key = "display_mode"
+type = "select"
+label_key = "settings.display_mode.label"
+description_key = "settings.display_mode.description"
+default = "icon_and_count"
+options = [
+  { value = "icon_and_count", label_key = "settings.display_mode.icon_and_count" },
+  { value = "count", label_key = "settings.display_mode.count" },
+  { value = "icon", label_key = "settings.display_mode.icon" },
+]
+
+[[setting]]
+key = "hide_when_empty"
+type = "bool"
+label_key = "settings.hide_when_empty.label"
+description_key = "settings.hide_when_empty.description"
+default = false
+
+[[setting]]
+key = "max_mails"
+type = "int"
+label_key = "settings.max_mails.label"
+description_key = "settings.max_mails.description"
+default = 15
+min = 1
+max = 50
+
+[[setting]]
+key = "notify_errors"
+type = "bool"
+label_key = "settings.notify_errors.label"
+description_key = "settings.notify_errors.description"
+default = true
+
+# ── Entries ─────────────────────────────────────────────────────────────────
+
+[[service]]
+id = "daemon"
+entry = "service.luau"
+
+[[widget]]
+id = "bar"
+entry = "widget.luau"
+
+[[shortcut]]
+id = "tile"
+entry = "tile.luau"
+
+[[panel]]
+id = "mails"
+entry = "panel.luau"
+width = 480
+height = 580
+placement = "attached"
+position = "auto"
+open_near_click = true
+keyboard_focus = "on_demand"
