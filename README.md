@@ -8,7 +8,7 @@ A [Noctalia](https://noctalia.dev) v5 plugin that shows mail status from a runni
 | ----------------------- | ------------------------------------------------------------------------------------------------------- |
 | **Bar widget**          | Envelope glyph + unread count. Left-click opens the panel, right-click checks mail now.                 |
 | **Control-center tile** | `N unread`, or `N accounts failing` when something is wrong.                                            |
-| **Panel**               | Totals, one row per account (unread count + connection state), and the pending mail list, newest first. |
+| **Panel**               | Totals, one row per account (unread count + connection state), and the pending mail list, newest first, and a button that opens your mail client. |
 | **Notifications**       | Optional alert when an account enters an error state.                                                   |
 
 Colours indicate status: normal when healthy, dimmed when offline or idle,
@@ -54,7 +54,23 @@ $ noctalia msg plugins disable jamespo/bubblemail
 | Bar display              | Icon and count | Icon and count / count only / icon only.                                 |
 | Hide when empty          | off            | Drop the bar widget entirely when there is no unread mail and no errors. |
 | Mails in panel           | 15             | Cap on the pending mail list (1–50).                                     |
+| Mail client button       | on             | Show a button in the panel header that opens your mail client.          |
+| Mail client command      | *(empty)*      | Command that button runs; empty means the desktop's default.            |
 | Notify on account errors | on             | Notify when an account enters an error state.                            |
+
+### Opening the mail client
+
+With **Mail client command** empty, the button resolves the desktop's
+`mailto:` handler (`xdg-mime`, falling back to `mimeapps.list`) and runs that
+desktop entry's `Exec=` with its field codes stripped — so you get the client's
+normal window, not a compose window. If no handler can be resolved it falls
+back to `xdg-open mailto:`.
+
+Set the command explicitly to override that: it is run with `sh -c`, so
+`thunderbird`, `flatpak run org.mozilla.Thunderbird` or
+`kitty -e neomutt` all work. A command that fails does so in the detached
+child, where the plugin cannot see it — only failures to start anything at all
+are reported as a notification.
 
 ## Layout
 
@@ -86,7 +102,13 @@ You can run it standalone:
 ```console
 $ ./bubblemail/bubblemail-query.py status 5   # JSON status, 5 most recent mails
 $ ./bubblemail/bubblemail-query.py refresh    # ask the daemon to check mail now
+$ ./bubblemail/bubblemail-query.py launch     # start the default mail client
+$ ./bubblemail/bubblemail-query.py launch 'thunderbird'   # ...or a given command
 ```
+
+`launch` needs no D-Bus at all; it lives here because resolving the desktop's
+mail handler means reading desktop entries, and because spawning the client in
+its own session keeps it alive when the shell restarts.
 
 It always exits 0 and always prints one JSON object, so callers check the `ok`
 field rather than an exit code.
@@ -103,13 +125,14 @@ three UI entries only read it. Swapping the transport touches that one file.
 | `bm.mails`               | pending mails, newest first, capped by `max_mails`                                                                                             |
 | `bm.total` / `bm.errors` | unread total, count of failing accounts                                                                                                        |
 | `bm.updated`             | epoch of last successful poll                                                                                                                  |
-| `bm.cmd`                 | `{ op = "refresh" \| "poll", seq }` written by UI entries                                                                                      |
+| `bm.cmd`                 | `{ op = "refresh" \| "poll" \| "launch", seq }` written by UI entries                                                                          |
 
 ## Scripting
 
 ```console
 $ noctalia msg plugin jamespo/bubblemail:daemon all refresh   # check mail now
 $ noctalia msg plugin jamespo/bubblemail:daemon all poll      # re-read state
+$ noctalia msg plugin jamespo/bubblemail:daemon all launch    # open mail client
 $ noctalia msg panel-toggle jamespo/bubblemail:mails
 ```
 

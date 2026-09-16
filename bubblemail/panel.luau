@@ -1,7 +1,8 @@
 -- panel.luau
 -- Bubblemail - mail panel (480x580).
 --
--- Layout: header (totals + refresh + close), one row per configured account
+-- Layout: header (totals + optional mail-client button + refresh + close), one
+-- row per configured account
 -- showing unread count and connection state, then a scrollable list of pending
 -- mails, newest first.
 -- Reads state published by service.luau; sends commands via "bm.cmd".
@@ -56,30 +57,49 @@ local function headerRow(daemon, accounts, total, errors)
 
 	local refreshing = noctalia.state.get("bm.refreshing") == true
 
-	return ui.row({ gap = 8, align = "center" }, {
+	local children = {
 		ui.glyph({ name = glyph, size = 18,
 			color = errors > 0 and "error" or "primary" }),
 		ui.label({ text = summary, fontSize = 13, fontWeight = "medium",
 			color = "on_surface", flexGrow = 1 }),
-		ui.button({
-			key = "refresh",
-			glyph = "refresh",
+	}
+
+	-- On by default; turn it off if you read mail somewhere the desktop's
+	-- mailto: handler does not point at.
+	if noctalia.getConfig("show_mail_client") ~= false then
+		-- Enabled even when the daemon is down: the client is a separate
+		-- process, and "bubblemaild died" is a reason to open it, not to
+		-- block it.
+		table.insert(children, ui.button({
+			key = "client",
+			glyph = "external-link",
 			variant = "outline",
 			controlSize = "sm",
-			tooltip = "Check mail now",
-			-- Disabled mid-refresh: the daemon coalesces checks anyway, and a
-			-- greyed button is clearer feedback than a click that does nothing.
-			enabled = not refreshing and daemon.available == true,
-			onClick = function() sendCmd("refresh") end,
-		}),
-		ui.button({
-			key = "close",
-			glyph = "x",
-			variant = "outline",
-			controlSize = "sm",
-			onClick = function() panel.close() end,
-		}),
-	})
+			tooltip = "Open mail client",
+			onClick = function() sendCmd("launch") end,
+		}))
+	end
+
+	table.insert(children, ui.button({
+		key = "refresh",
+		glyph = "refresh",
+		variant = "outline",
+		controlSize = "sm",
+		tooltip = "Check mail now",
+		-- Disabled mid-refresh: the daemon coalesces checks anyway, and a
+		-- greyed button is clearer feedback than a click that does nothing.
+		enabled = not refreshing and daemon.available == true,
+		onClick = function() sendCmd("refresh") end,
+	}))
+	table.insert(children, ui.button({
+		key = "close",
+		glyph = "x",
+		variant = "outline",
+		controlSize = "sm",
+		onClick = function() panel.close() end,
+	}))
+
+	return ui.row({ gap = 8, align = "center" }, children)
 end
 
 -- ── Account rows ────────────────────────────────────────────────────────────
@@ -209,6 +229,12 @@ function onOpen(_context)
 end
 
 function onClose() end
+
+function onConfigChanged()
+	-- show_mail_client changes the header, so repaint instead of waiting for
+	-- the next state update to do it.
+	render()
+end
 
 noctalia.state.watch("bm.daemon", render)
 noctalia.state.watch("bm.accounts", render)

@@ -11,14 +11,19 @@ python3-dbus is not an extra dependency in practice: bubblemaild is itself a
 python3 + dbus process, so any machine running the daemon already has it.
 
 Usage:
-    bubblemail-query.py            # full status document
-    bubblemail-query.py refresh    # ask the daemon to check mail now
+    bubblemail-query.py                 # full status document
+    bubblemail-query.py refresh         # ask the daemon to check mail now
+    bubblemail-query.py launch [cmd]    # start the mail client, detached
 
 Always exits 0 and always prints one JSON object, so the caller only has to
 look at the "ok" field rather than juggling exit codes.
 """
 
 import json
+import os
+import shutil
+import shlex
+import subprocess
 import sys
 
 BUS_NAME = 'bubblemail.BubblemailService'
@@ -137,9 +142,171 @@ def build(iface, max_mails):
     }
 
 
+# ── Mail client launching ───────────────────────────────────────────────────
+# None of this needs D-Bus; it is here rather than in the Luau side because
+# resolving the desktop's mail handler means reading desktop entries, and the
+# plugin sandbox can only reach the outside world through a shell command
+# anyway.
+
+# Exec= placeholders, stripped before spawning. There is nothing to substitute:
+# we are opening the client itself, not handing it a file or a URL.
+FIELD_CODES = {'%f', '%F', '%u', '%U', '%i', '%c', '%k',
+               '%d', '%D', '%n', '%N', '%v', '%m'}
+
+
+def data_dirs():
+    """XDG data directories, most specific first."""
+    home = os.environ.get('XDG_DATA_HOME') \
+        or os.path.expanduser('~/.local/share')
+    dirs = os.environ.get('XDG_DATA_DIRS') or '/usr/local/share:/usr/share'
+    return [home] + [d for d in dirs.split(':') if d]
+
+
+def config_dirs():
+    """XDG config directories, most specific first."""
+    home = os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config')
+    dirs = os.environ.get('XDG_CONFIG_DIRS') or '/etc/xdg'
+    return [home] + [d for d in dirs.split(':') if d]
+
+
+def default_mailto_id():
+    """Desktop-entry id handling mailto:, e.g. 'thunderbird.desktop'."""
+    if shutil.which('xdg-mime'):
+        try:
+            out = subprocess.run(
+                ['xdg-mime', 'query', 'default', 'x-scheme-handler/mailto'],
+                capture_output=True, text=True, timeout=5)
+            entry = out.stdout.strip().split('\n')[0].strip()
+            if entry:
+                return entry
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    # xdg-utils may not be installed; mimeapps.list is the file it would read.
+    for base in config_dirs():
+        path = os.path.join(base, 'mimeapps.list')
+        entry = mimeapps_default(path)
+        if entry:
+            return entry
+    return ''
+
+
+def mimeapps_default(path):
+    """First x-scheme-handler/mailto entry in a mimeapps.list, if any."""
+    section = ''
+    try:
+        with open(path, encoding='utf-8', errors='replace') as handle:
+            for line in handle:
+                line = line.strip()
+                if line.startswith('['):
+                    section = line
+                elif section == '[Default Applications]' \
+                        and line.startswith('x-scheme-handler/mailto='):
+                    # The value is a ';'-separated preference list.
+                    for entry in line.split('=', 1)[1].split(';'):
+                        if entry.strip():
+                            return entry.strip()
+    except OSError:
+        pass
+    return ''
+
+
+def desktop_entry_paths(desktop_id):
+    """Candidate paths for a desktop id, per the menu spec's '-' rule.
+
+    'kde-foo.desktop' may live at either kde-foo.desktop or kde/foo.desktop.
+    """
+    names, name = [desktop_id], desktop_id
+    while '-' in name:
+        name = name.replace('-', '/', 1)
+        names.append(name)
+    for base in data_dirs():
+        for name in names:
+            yield os.path.join(base, 'applications', name)
+
+
+def desktop_entry_argv(desktop_id):
+    """argv from a desktop entry's Exec=, or None if it cannot be read.
+
+    Path= and DBusActivatable= are ignored: mail clients do not rely on a
+    working directory, and every such entry also carries a usable Exec=.
+    """
+    if not desktop_id.endswith('.desktop'):
+        desktop_id += '.desktop'
+
+    for path in desktop_entry_paths(desktop_id):
+        section, exec_line = '', ''
+        try:
+            with open(path, encoding='utf-8', errors='replace') as handle:
+                for line in handle:
+                    line = line.rstrip('\n')
+                    if line.startswith('['):
+                        # Only the main group; later groups are actions.
+                        if section == '[Desktop Entry]':
+                            break
+                        section = line.strip()
+                    elif section == '[Desktop Entry]' \
+                            and line.startswith('Exec=') and not exec_line:
+                        exec_line = line.split('=', 1)[1].strip()
+        except OSError:
+            continue
+
+        if exec_line:
+            try:
+                argv = shlex.split(exec_line)
+            except ValueError:
+                continue
+            argv = [a for a in argv if a not in FIELD_CODES]
+            if argv:
+                return argv
+    return None
+
+
+def default_mail_argv():
+    """How to start the desktop's mail client, or None if unknown."""
+    desktop_id = default_mailto_id()
+    if desktop_id:
+        argv = desktop_entry_argv(desktop_id)
+        if argv:
+            return argv
+
+    # No resolvable handler entry: let the portal/xdg-open chain decide. This
+    # opens a compose window in some clients, which still beats doing nothing.
+    if shutil.which('xdg-open'):
+        return ['xdg-open', 'mailto:']
+    return None
+
+
+def launch(command=''):
+    """Start the mail client detached, so it outlives this helper."""
+    if command.strip():
+        argv = ['sh', '-c', command]
+    else:
+        argv = default_mail_argv()
+        if not argv:
+            return {'ok': False, 'reason': 'no-client',
+                    'error': 'no default mailto handler found'}
+
+    try:
+        subprocess.Popen(argv, start_new_session=True,
+                         stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        return {'ok': False, 'reason': 'spawn-failed', 'error': str(exc)}
+    return {'ok': True, 'launched': ' '.join(argv)}
+
+
 def main():
     args = sys.argv[1:]
     action = args[0] if args else 'status'
+
+    if action == 'launch':
+        # Deliberately before the dbus import: launching the client is useful
+        # even when the daemon side is broken.
+        print(json.dumps(launch(args[1] if len(args) > 1 else '')))
+        return 0
+
     max_mails = to_int(args[1], 15) if len(args) > 1 else 15
 
     try:

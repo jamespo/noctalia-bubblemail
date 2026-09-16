@@ -19,6 +19,14 @@
       "label": "Mails in panel",
       "description": "Maximum number of pending mails listed in the panel."
     },
+    "show_mail_client": {
+      "label": "Mail client button",
+      "description": "Show a button in the panel that opens your mail client."
+    },
+    "mail_client_command": {
+      "label": "Mail client command",
+      "description": "Command that button runs. Leave empty to use the desktop's default mail application."
+    },
     "notify_errors": {
       "label": "Notify on account errors",
       "description": "Send a notification when an account enters an error state."

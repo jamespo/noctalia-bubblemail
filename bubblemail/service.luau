@@ -27,25 +27,30 @@
 --   "bm.total"    : int  unread across all accounts
 --   "bm.errors"   : int  accounts currently in an error state
 --   "bm.updated"  : int  epoch seconds of the last successful poll
---   "bm.cmd"      : { op="refresh"|"poll", seq=int } written by UI entries;
---                   this service executes it. seq must strictly increase.
+--   "bm.cmd"      : { op="refresh"|"poll"|"launch", seq=int } written by UI
+--                   entries; this service executes it. seq must strictly
+--                   increase.
 
 local function shellQuote(s)
 	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
 end
 
--- Build a helper invocation. `action` is "status" or "refresh"; the mail cap is
--- passed through so the helper trims the list before it crosses the boundary.
-local function helperCmd(action)
+-- Build a helper invocation: "python3 <helper> <args...>", already quoted.
+local function helperCmd(...)
 	local dir = noctalia.pluginDir()
 	if not dir then return nil end
+	local parts = { "python3", shellQuote(dir .. "/bubblemail-query.py") }
+	for _, arg in ipairs({ ... }) do
+		table.insert(parts, arg)
+	end
+	return table.concat(parts, " ")
+end
+
+-- `action` is "status" or "refresh"; the mail cap is passed through so the
+-- helper trims the list before it crosses the boundary.
+local function queryCmd(action)
 	local cap = tonumber(noctalia.getConfig("max_mails")) or 15
-	return table.concat({
-		"python3",
-		shellQuote(dir .. "/bubblemail-query.py"),
-		action,
-		tostring(math.floor(cap)),
-	}, " ")
+	return helperCmd(action, tostring(math.floor(cap)))
 end
 
 local function intervalMs()
@@ -119,7 +124,7 @@ local function applyStatus(doc)
 end
 
 local function poll()
-	local cmd = helperCmd("status")
+	local cmd = queryCmd("status")
 	if not cmd then
 		markUnavailable("no-plugin-dir", "cannot locate plugin directory")
 		return
@@ -144,7 +149,7 @@ end
 -- asynchronous, so a short delay before the follow-up poll gives it time to
 -- update its content list; the regular interval poll corrects it either way.
 local function refresh()
-	local cmd = helperCmd("refresh")
+	local cmd = queryCmd("refresh")
 	if not cmd then return end
 	noctalia.state.set("bm.refreshing", true)
 	noctalia.runAsync(cmd, function()
@@ -155,11 +160,42 @@ local function refresh()
 	end)
 end
 
+-- Start the user's mail client. The helper spawns it in a new session, so it
+-- outlives both this command and the shell itself; an empty mail_client_command
+-- means "whatever handles mailto: on this desktop".
+local function launchClient()
+	local custom = noctalia.getConfig("mail_client_command")
+	if type(custom) ~= "string" or not custom:match("%S") then custom = nil end
+
+	local cmd
+	if custom then
+		cmd = helperCmd("launch", shellQuote(custom))
+	else
+		cmd = helperCmd("launch")
+	end
+	if not cmd then return end
+
+	noctalia.runAsync(cmd, function(res)
+		local doc
+		if res and not res.error then
+			local ok, decoded = pcall(noctalia.json.decode, res.stdout or "")
+			if ok and type(decoded) == "table" then doc = decoded end
+		end
+		if doc and doc.ok == true then return end
+		-- Nothing visible happens on failure otherwise: the button would just
+		-- look broken. Say which half failed.
+		local why = doc and doc.error or (res and res.error) or "helper failed"
+		noctalia.notifyError("Bubblemail", "Could not open mail client: " .. tostring(why))
+	end)
+end
+
 local function handleCommand(cmd)
 	if cmd.op == "refresh" then
 		refresh()
 	elseif cmd.op == "poll" then
 		poll()
+	elseif cmd.op == "launch" then
+		launchClient()
 	end
 end
 
@@ -178,11 +214,14 @@ end
 -- IPC hook for scripting and testing:
 --   noctalia msg plugin jamespo/bubblemail:daemon refresh
 --   noctalia msg plugin jamespo/bubblemail:daemon poll
+--   noctalia msg plugin jamespo/bubblemail:daemon launch
 function onIpc(event, _payload)
 	if event == "refresh" then
 		refresh()
 	elseif event == "poll" or event == "status" then
 		poll()
+	elseif event == "launch" then
+		launchClient()
 	end
 end
 
