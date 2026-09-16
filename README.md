@@ -1,21 +1,17 @@
 # noctalia-bubblemail
 
-A [Noctalia](https://noctalia.dev) v5 plugin that shows mail status from a
-running [`bubblemaild`](https://framagit.org/razer/bubblemail) — unread counts,
-per-account connection state, and the pending mail list.
-
-Inspired by, and sharing its D-Bus approach with, [`bubble-cli`](../bubble-cli).
+A [Noctalia](https://noctalia.dev) v5 plugin that shows mail status from a running [`bubblemaild`](https://framagit.org/razer/bubblemail) — unread counts, per-account connection state and the pending mail list.
 
 ## What you get
 
-| Surface | Shows |
-|---------|-------|
-| **Bar widget** | Envelope glyph + unread count. Left-click opens the panel, right-click checks mail now. |
-| **Control-center tile** | `N unread`, or `N accounts failing` when something is wrong. |
-| **Panel** | Totals, one row per account (unread count + connection state), and the pending mail list, newest first. |
-| **Notifications** | Optional alert when an account enters an error state. |
+| Surface                 | Shows                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Bar widget**          | Envelope glyph + unread count. Left-click opens the panel, right-click checks mail now.                 |
+| **Control-center tile** | `N unread`, or `N accounts failing` when something is wrong.                                            |
+| **Panel**               | Totals, one row per account (unread count + connection state), and the pending mail list, newest first. |
+| **Notifications**       | Optional alert when an account enters an error state.                                                   |
 
-Colours follow `bubble-cli`: normal when healthy, dimmed when offline or idle,
+Colours indicate status: normal when healthy, dimmed when offline or idle,
 error red when an account is failing.
 
 ## Requirements
@@ -27,7 +23,9 @@ error red when an account is failing.
 
 ## Install
 
-Register this directory as a local plugin source, then enable the plugin:
+Firstly, ensure bubblemail is installed, your accounts are set up & the daemon is running.
+
+Clone this repository, then register this directory as a local plugin source, then enable the plugin:
 
 ```console
 $ noctalia msg plugins source add bubblemail-dev path /path/to/noctalia-bubblemail
@@ -50,13 +48,13 @@ $ noctalia msg plugins disable jamespo/bubblemail
 
 ## Settings
 
-| Setting | Default | Meaning |
-|---------|---------|---------|
-| Poll interval | 30s | Seconds between daemon checks (5–600). |
-| Bar display | Icon and count | Icon and count / count only / icon only. |
-| Hide when empty | off | Drop the bar widget entirely when there is no unread mail and no errors. |
-| Mails in panel | 15 | Cap on the pending mail list (1–50). |
-| Notify on account errors | on | Notify when an account enters an error state. |
+| Setting                  | Default        | Meaning                                                                  |
+| ------------------------ | -------------- | ------------------------------------------------------------------------ |
+| Poll interval            | 30s            | Seconds between daemon checks (5–600).                                   |
+| Bar display              | Icon and count | Icon and count / count only / icon only.                                 |
+| Hide when empty          | off            | Drop the bar widget entirely when there is no unread mail and no errors. |
+| Mails in panel           | 15             | Cap on the pending mail list (1–50).                                     |
+| Notify on account errors | on             | Notify when an account enters an error state.                            |
 
 ## Layout
 
@@ -81,10 +79,7 @@ ambiguous to parse with Lua patterns. `bubblemail-query.py` does the D-Bus call
 and returns a single JSON document instead, which the service decodes with
 `noctalia.json.decode`.
 
-It mirrors `bubble-cli`: the same three methods (`GetConfig`, `GetStatus`,
-`GetContent`), the same `AccountStatus` error-code table, and the same
-definition of "unread" — mail pending in bubblemail's notification list, not a
-raw IMAP `UNSEEN` count.
+It provides three methods (`GetConfig`, `GetStatus`, `GetContent`),  defines `AccountStatus` as an error-code table and uses mail pending in bubblemail's notification list as a definition of "unread"; not a raw IMAP `UNSEEN` count.
 
 You can run it standalone:
 
@@ -101,14 +96,14 @@ field rather than an exit code.
 `service.luau` owns all daemon traffic and publishes to `noctalia.state`; the
 three UI entries only read it. Swapping the transport touches that one file.
 
-| Key | Value |
-|-----|-------|
-| `bm.daemon` | `{ available, reason, error, checked }` — `checked` stays false until the first poll returns, so the UI doesn't flash "unavailable" at startup |
-| `bm.accounts` | per-account records (uuid, name, enabled, error code/state/message, unread) |
-| `bm.mails` | pending mails, newest first, capped by `max_mails` |
-| `bm.total` / `bm.errors` | unread total, count of failing accounts |
-| `bm.updated` | epoch of last successful poll |
-| `bm.cmd` | `{ op = "refresh" \| "poll", seq }` written by UI entries |
+| Key                      | Value                                                                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bm.daemon`              | `{ available, reason, error, checked }` — `checked` stays false until the first poll returns, so the UI doesn't flash "unavailable" at startup |
+| `bm.accounts`            | per-account records (uuid, name, enabled, error code/state/message, unread)                                                                    |
+| `bm.mails`               | pending mails, newest first, capped by `max_mails`                                                                                             |
+| `bm.total` / `bm.errors` | unread total, count of failing accounts                                                                                                        |
+| `bm.updated`             | epoch of last successful poll                                                                                                                  |
+| `bm.cmd`                 | `{ op = "refresh" \| "poll", seq }` written by UI entries                                                                                      |
 
 ## Scripting
 
@@ -125,3 +120,5 @@ $ noctalia plugins lint .
 ```
 
 Entries hot-reload on save while the plugin is enabled.
+
+noctalia-bubblemail is developed with AI assistance.
