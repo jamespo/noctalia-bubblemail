@@ -1,0 +1,23 @@
+# Noctalia plugins catalog.
+# Index of every plugin this source ships: the minimum Noctalia needs to render,
+# search and compat-check the list before anything is enabled. The per-plugin
+# plugin.toml stays authoritative; the host re-reads it on enable.
+#
+# Noctalia requires this file at the root of a *git* source ("no catalog.toml in
+# source '<name>'" otherwise). Keep one [[plugin]] row per plugin subdirectory
+# and mirror the fields from that plugin's plugin.toml on every version bump.
+# Regenerate with: ./update-catalog.py
+
+[[plugin]]
+id = "jamespo/bubblemail"
+name = "Bubblemail"
+version = "1.0.0"
+updated_at = 1789478587
+added_at = 1789478587
+author = "jamespo"
+license = "MIT"
+icon = "mail"
+description = "Unread mail count and per-account status from a running bubblemaild."
+deprecated = false
+plugin_api = 16
+tags = ["bar", "panel", "service", "mail"]

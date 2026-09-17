@@ -25,26 +25,49 @@ error red when an account is failing.
 
 Firstly, ensure bubblemail is installed, your accounts are set up & the daemon is running.
 
-Clone this repository, then register this directory as a local plugin source, then enable the plugin:
+Register the repository as a plugin source, then enable the plugin. Pick the
+source kind by whether you want Noctalia to own the files (git) or to read them
+from a checkout you manage yourself (path).
+
+### From git — installs and uninstalls like a store plugin
 
 ```console
-$ noctalia msg plugins source add bubblemail-dev path /path/to/noctalia-bubblemail
+$ noctalia msg plugins source add jamespo git https://github.com/jamespo/noctalia-plugins-jp
 $ noctalia msg plugins enable jamespo/bubblemail
 ```
 
-The source path is the **repository root**, not the `bubblemail/` subdirectory:
-Noctalia scans a source as a directory of plugin subdirectories, matching the
-layout of the official and community plugin repos.
+Noctalia clones the repo into its own cache and exports the plugin to
+`~/.local/state/noctalia/plugins/materialized/jamespo/bubblemail`. Because those
+files belong to Noctalia, Settings → Plugins shows the trash icon next to
+Bubblemail and can uninstall it, exactly like the community plugins; it also
+picks up new versions via `noctalia msg plugins update jamespo` and the
+auto-update cycle. This is the recommended way to install.
+
+### From a local path — for hacking on the plugin
+
+```console
+$ noctalia msg plugins source add bubblemail-dev path /path/to/noctalia-plugins-jp
+$ noctalia msg plugins enable jamespo/bubblemail
+```
+
+A path source is a directory Noctalia treats as read-only: it runs the plugin
+straight out of your working tree (handy — edits are picked up by the file
+watcher), but it never writes to or deletes from it. That means **no trash icon
+in Settings → Plugins** for plugins from a path source; removing one means
+disabling it and dropping the source:
+
+```console
+$ noctalia msg plugins disable jamespo/bubblemail
+$ noctalia msg plugins source remove bubblemail-dev
+```
+
+Either way the source location is the **repository root**, not the `bubblemail/`
+subdirectory: Noctalia scans a source as a directory of plugin subdirectories,
+matching the layout of the official and community plugin repos.
 
 Then add the bar widget by putting `jamespo/bubblemail:bar` in a bar's widget
 list in `~/.local/state/noctalia/settings.toml` and running
 `noctalia msg config-reload`, or add it from Noctalia's own settings UI.
-
-To remove it again:
-
-```console
-$ noctalia msg plugins disable jamespo/bubblemail
-```
 
 ## Settings
 
