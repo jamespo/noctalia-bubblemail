@@ -10,7 +10,7 @@
 
 id = "jamespo/bubblemail"
 name = "Bubblemail"
-version = "1.0.0"
+version = "1.1.0"
 plugin_api = 16
 author = "jamespo"
 license = "MIT"
@@ -75,11 +75,14 @@ label_key = "settings.mail_client_command.label"
 description_key = "settings.mail_client_command.description"
 default = ""
 
+# One switch for everything the plugin puts on screen outside its own surfaces:
+# new mail and account failures. They were separate settings briefly; two
+# toggles for one question is not worth the settings-page real estate.
 [[setting]]
-key = "notify_errors"
+key = "notifications"
 type = "bool"
-label_key = "settings.notify_errors.label"
-description_key = "settings.notify_errors.description"
+label_key = "settings.notifications.label"
+description_key = "settings.notifications.description"
 default = true
 
 # ── Entries ─────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ Usage:
     bubblemail-query.py                 # full status document
     bubblemail-query.py refresh         # ask the daemon to check mail now
     bubblemail-query.py launch [cmd]    # start the mail client, detached
+    bubblemail-query.py notify SUMMARY [BODY] [ICON]   # desktop notification
 
 Always exits 0 and always prints one JSON object, so the caller only has to
 look at the "ok" field rather than juggling exit codes.
@@ -28,6 +29,10 @@ import sys
 
 BUS_NAME = 'bubblemail.BubblemailService'
 OBJ_PATH = '/bubblemail/BubblemailService'
+
+# The desktop's notification daemon (Noctalia itself, under a normal session).
+NOTIFY_NAME = 'org.freedesktop.Notifications'
+NOTIFY_PATH = '/org/freedesktop/Notifications'
 
 # Mirrors bubblemail.account.AccountStatus. Duplicated locally so this script
 # needs only `dbus`, not the bubblemail package itself.
@@ -297,6 +302,52 @@ def launch(command=''):
     return {'ok': True, 'launched': ' '.join(argv)}
 
 
+def notify(summary, body='', icon=''):
+    """Post a desktop notification via org.freedesktop.Notifications.
+
+    Lives here rather than in the plugin because the only notification call
+    Noctalia exposes to plugins is notifyError(), which renders as a failure --
+    wrong shape for "you have mail". Going straight to the session's
+    notification daemon costs nothing extra: this helper already needs dbus.
+    """
+    try:
+        import dbus
+    except ImportError:
+        return {'ok': False, 'reason': 'no-dbus',
+                'error': 'python3 dbus module not available'}
+
+    if icon and not os.path.isfile(icon):
+        # Avatars are cache files that may have been swept; fall back to the
+        # themed icon rather than handing the daemon a dead path.
+        icon = ''
+
+    try:
+        obj = dbus.SessionBus().get_object(NOTIFY_NAME, NOTIFY_PATH)
+        iface = dbus.Interface(obj, NOTIFY_NAME)
+        # Subjects and sender names are arbitrary text, so escape them when the
+        # daemon parses the body as markup and leave them alone when it does
+        # not (Noctalia does not, dunst and mako do).
+        try:
+            markup = 'body-markup' in [str(c) for c in iface.GetCapabilities()]
+        except dbus.DBusException:
+            markup = False
+        if markup:
+            for char, entity in (('&', '&amp;'), ('<', '&lt;'), ('>', '&gt;')):
+                body = body.replace(char, entity)
+        hints = {
+            'urgency': dbus.Byte(1),          # normal; new mail is not critical
+            'category': dbus.String('email.arrived'),
+        }
+        iface.Notify('Bubblemail', dbus.UInt32(0), icon or 'mail',
+                     summary, body, dbus.Array([], signature='s'), hints,
+                     dbus.Int32(-1))         # daemon's default timeout
+    except dbus.DBusException as exc:
+        return {'ok': False, 'reason': 'unreachable', 'error': str(exc)}
+    except Exception as exc:  # pylint: disable=broad-except
+        return {'ok': False, 'reason': 'error', 'error': str(exc)}
+    return {'ok': True}
+
+
 def main():
     args = sys.argv[1:]
     action = args[0] if args else 'status'
@@ -305,6 +356,13 @@ def main():
         # Deliberately before the dbus import: launching the client is useful
         # even when the daemon side is broken.
         print(json.dumps(launch(args[1] if len(args) > 1 else '')))
+        return 0
+
+    if action == 'notify':
+        # Not a bubblemaild call, so it does not go through the connection
+        # below: the notification daemon is a different bus name entirely.
+        fields = (args[1:4] + ['', '', ''])[:3]
+        print(json.dumps(notify(*fields)))
         return 0
 
     max_mails = to_int(args[1], 15) if len(args) > 1 else 15

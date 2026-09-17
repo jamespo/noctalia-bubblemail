@@ -64,6 +64,11 @@ end
 local prevErrorCodes = {}
 local notifiedUnavailable = false
 
+-- Mail uuids seen by an earlier poll, or nil before the first one. bubblemail
+-- derives a mail's uuid from account+folder+sender+subject+date, so it is
+-- stable across polls and identifies a single message.
+local seenMails = nil
+
 local function markUnavailable(reason, err)
 	noctalia.state.set("bm.daemon", {
 		available = false,
@@ -80,7 +85,7 @@ end
 -- Notify on accounts that have just entered an error state. Codes <= 0 are
 -- healthy (0 = OK, -1 = offline), so only a positive code is a real failure.
 local function notifyNewErrors(accounts)
-	if noctalia.getConfig("notify_errors") ~= true then
+	if noctalia.getConfig("notifications") ~= true then
 		-- Still track codes while notifications are off, so re-enabling the
 		-- setting doesn't replay every pre-existing error as "new".
 		for _, a in ipairs(accounts) do prevErrorCodes[a.uuid] = a.error_code end
@@ -95,6 +100,90 @@ local function notifyNewErrors(accounts)
 		end
 		prevErrorCodes[a.uuid] = a.error_code
 	end
+end
+
+-- Post a normal-urgency desktop notification through the helper. The only
+-- notification call the plugin API exposes is notifyError(), which renders as a
+-- failure; new mail is not one. Failures here are swallowed on purpose -- a
+-- notification that could not be shown does not deserve a second one, and a
+-- broken helper is already reported by poll().
+local function postNotification(summary, body, icon)
+	local cmd = helperCmd("notify", shellQuote(summary), shellQuote(body or ""),
+		shellQuote(icon or ""))
+	if not cmd then return end
+	noctalia.runAsync(cmd, function() end)
+end
+
+local function senderOf(m)
+	local who = m.name
+	if who == nil or who == "" then who = m.address end
+	if who == nil or who == "" then who = "Unknown sender" end
+	return who
+end
+
+local function subjectOf(m)
+	local subject = m.subject
+	if subject == nil or subject == "" then return "(no subject)" end
+	return subject
+end
+
+-- Announce mails that were absent from the previous poll's list. `total` is the
+-- untrimmed pending count; `mails` is capped by max_mails.
+local function notifyNewMail(mails, total)
+	local fresh = {}
+	if seenMails == nil then
+		-- First poll of this session: everything pending is pre-existing, not
+		-- new. Seed the set silently rather than announcing the whole backlog
+		-- on every shell start or plugin reload.
+		seenMails = {}
+	else
+		for _, m in ipairs(mails) do
+			local uuid = m.uuid
+			if type(uuid) == "string" and uuid ~= "" and not seenMails[uuid] then
+				table.insert(fresh, m)
+			end
+		end
+	end
+
+	if #mails >= total then
+		-- The list is complete, so rebuild from it and let dismissed mail drop
+		-- out of the set instead of accumulating for the life of the session.
+		local current = {}
+		for _, m in ipairs(mails) do
+			if type(m.uuid) == "string" and m.uuid ~= "" then current[m.uuid] = true end
+		end
+		seenMails = current
+	else
+		-- Trimmed by max_mails: forgetting what we cannot see would re-announce
+		-- an older mail the moment a newer one is dismissed and it reappears.
+		for _, m in ipairs(mails) do
+			if type(m.uuid) == "string" and m.uuid ~= "" then seenMails[m.uuid] = true end
+		end
+	end
+
+	-- Checked after the bookkeeping above, so enabling the setting later does
+	-- not replay mail that was already sitting there while it was off.
+	if #fresh == 0 or noctalia.getConfig("notifications") ~= true then return end
+
+	if #fresh == 1 then
+		local m = fresh[1]
+		-- bubblemail caches a per-sender avatar; the helper falls back to the
+		-- themed mail icon when the path is gone.
+		postNotification("New mail from " .. senderOf(m), subjectOf(m), m.avatar)
+		return
+	end
+
+	-- Newest first, same order as the panel. Three lines is enough to tell what
+	-- arrived without turning the toast into a mail client.
+	local lines = {}
+	for i, m in ipairs(fresh) do
+		if i > 3 then
+			table.insert(lines, "and " .. tostring(#fresh - 3) .. " more")
+			break
+		end
+		table.insert(lines, senderOf(m) .. " - " .. subjectOf(m))
+	end
+	postNotification(tostring(#fresh) .. " new mails", table.concat(lines, "\n"))
 end
 
 local function applyStatus(doc)
@@ -113,14 +202,17 @@ local function applyStatus(doc)
 
 	notifiedUnavailable = false
 	local accounts = doc.accounts or {}
+	local mails = doc.mails or {}
+	local total = tonumber(doc.total) or 0
 	noctalia.state.set("bm.daemon", { available = true, reason = "", error = "",
 		checked = true })
 	noctalia.state.set("bm.accounts", accounts)
-	noctalia.state.set("bm.mails", doc.mails or {})
-	noctalia.state.set("bm.total", tonumber(doc.total) or 0)
+	noctalia.state.set("bm.mails", mails)
+	noctalia.state.set("bm.total", total)
 	noctalia.state.set("bm.errors", tonumber(doc.errors) or 0)
 	noctalia.state.set("bm.updated", os.time())
 	notifyNewErrors(accounts)
+	notifyNewMail(mails, total)
 end
 
 local function poll()

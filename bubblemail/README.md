@@ -9,7 +9,7 @@ A [Noctalia](https://noctalia.dev) v5 plugin that shows mail status from a runni
 | **Bar widget**          | Envelope glyph + unread count. Left-click opens the panel, right-click checks mail now.                 |
 | **Control-center tile** | `N unread`, or `N accounts failing` when something is wrong.                                            |
 | **Panel**               | Totals, one row per account (unread count + connection state), and the pending mail list, newest first, and a button that opens your mail client. |
-| **Notifications**       | Optional alert when an account enters an error state.                                                   |
+| **Notifications**       | Optional alert when new mail arrives, and when an account enters an error state.                        |
 
 Colours indicate status: normal when healthy, dimmed when offline or idle,
 error red when an account is failing.
@@ -79,7 +79,29 @@ list in `~/.local/state/noctalia/settings.toml` and running
 | Mails in panel           | 15             | Cap on the pending mail list (1–50).                                     |
 | Mail client button       | on             | Show a button in the panel header that opens your mail client.          |
 | Mail client command      | *(empty)*      | Command that button runs; empty means the desktop's default.            |
-| Notify on account errors | on             | Notify when an account enters an error state.                            |
+| Notifications            | on             | Notify on new mail and on account errors (see below).                    |
+
+### Notifications
+
+One toggle covers both kinds. Account errors fire on the transition into a
+failure, not on every poll while it stays broken.
+
+For new mail, each poll compares the pending list against the previous one and
+announces what is new: one mail gets `New mail from <sender>` with the subject
+as the body and the sender's bubblemail avatar as the icon, several get a
+`N new mails` summary listing the first three. Turn the setting off if
+bubblemail's own notification plugins already cover this.
+
+The first poll after the shell starts or the plugin reloads seeds the list
+silently, so you are not greeted by your existing backlog. The same bookkeeping
+runs while the setting is off, so turning it on does not replay mail that
+arrived earlier.
+
+Mails are identified by bubblemail's own uuid (a hash of account, folder,
+sender, subject and date), so the same message is never announced twice, and
+dismissing mail elsewhere does not re-trigger it. Detection is limited to the
+**Mails in panel** cap: if more than that many arrive between two polls, only
+the most recent ones are announced.
 
 ### Opening the mail client
 
@@ -127,11 +149,17 @@ $ ./bubblemail/bubblemail-query.py status 5   # JSON status, 5 most recent mails
 $ ./bubblemail/bubblemail-query.py refresh    # ask the daemon to check mail now
 $ ./bubblemail/bubblemail-query.py launch     # start the default mail client
 $ ./bubblemail/bubblemail-query.py launch 'thunderbird'   # ...or a given command
+$ ./bubblemail/bubblemail-query.py notify 'Summary' 'Body' # desktop notification
 ```
 
 `launch` needs no D-Bus at all; it lives here because resolving the desktop's
 mail handler means reading desktop entries, and because spawning the client in
 its own session keeps it alive when the shell restarts.
+
+`notify` talks to `org.freedesktop.Notifications`, not to bubblemaild. It lives
+here because the only notification call Noctalia exposes to plugins is
+`notifyError()`, which renders as a failure — the wrong shape for "you have
+mail" — and because this helper already has D-Bus in hand.
 
 It always exits 0 and always prints one JSON object, so callers check the `ok`
 field rather than an exit code.

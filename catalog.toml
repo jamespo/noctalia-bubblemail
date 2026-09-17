@@ -11,8 +11,8 @@
 [[plugin]]
 id = "jamespo/bubblemail"
 name = "Bubblemail"
-version = "1.0.0"
-updated_at = 1789478587
+version = "1.1.0"
+updated_at = 1789654539
 added_at = 1789478587
 author = "jamespo"
 license = "MIT"
